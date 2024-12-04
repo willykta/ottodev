@@ -5,7 +5,9 @@ import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from 'react'
 import type { Theme } from '~/lib/stores/theme';
 import { createScopedLogger } from '~/utils/logger';
 import { getTerminalTheme } from './theme';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 
+const clipboardAddon = new ClipboardAddon();
 const logger = createScopedLogger('Terminal');
 
 export interface TerminalRef {
@@ -29,7 +31,6 @@ export const Terminal = memo(
 
       useEffect(() => {
         const element = terminalElementRef.current!;
-
         const fitAddon = new FitAddon();
         const webLinksAddon = new WebLinksAddon();
 
@@ -46,7 +47,35 @@ export const Terminal = memo(
 
         terminal.loadAddon(fitAddon);
         terminal.loadAddon(webLinksAddon);
+        terminal.loadAddon(clipboardAddon); // Add clipboard support
         terminal.open(element);
+
+        // Add event listener for Ctrl+C and Ctrl+V
+        terminal.onKey(({ domEvent }) => {
+          const isCtrl = domEvent.ctrlKey || domEvent.metaKey; // Support Cmd on macOS
+
+          if (isCtrl && domEvent.code === 'KeyC') {
+            const selection = terminal.getSelection();
+            if (selection) {
+              navigator.clipboard
+                .writeText(selection)
+                .then(() => logger.debug('Copied to clipboard:', selection))
+                .catch((err) => console.error('Copy failed:', err));
+            }
+            domEvent.preventDefault();
+          }
+
+          if (isCtrl && domEvent.code === 'KeyV') {
+            navigator.clipboard
+              .readText()
+              .then((text) => {
+                terminal.paste(text);
+                logger.debug('Pasted from clipboard:', text);
+              })
+              .catch((err) => console.error('Paste failed:', err));
+            domEvent.preventDefault();
+          }
+        });
 
         const resizeObserver = new ResizeObserver(() => {
           fitAddon.fit();
@@ -68,9 +97,8 @@ export const Terminal = memo(
       useEffect(() => {
         const terminal = terminalRef.current!;
 
-        // we render a transparent cursor in case the terminal is readonly
+        // Update terminal theme and readonly state
         terminal.options.theme = getTerminalTheme(readonly ? { cursor: '#00000000' } : {});
-
         terminal.options.disableStdin = readonly;
       }, [theme, readonly]);
 
